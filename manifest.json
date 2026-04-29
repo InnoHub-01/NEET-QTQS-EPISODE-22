@@ -1,0 +1,15 @@
+{
+  "name": "NEET QTQS",
+  "short_name": "QTQS",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#020617",
+  "three-color": "#22c55e",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

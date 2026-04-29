@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="manifest" href="manifest.json">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8">
+<title>QuickThinking Series EPISODE 22</title>
+<meta name="theme-color" content="#22c55e">
+<style>
+body{
+  margin:0;
+  font-family:Arial;
+  background:#020617;
+  color:white;
+  text-align:center;
+}
+.container{
+  max-width:500px;
+  margin:auto;
+  padding:15px;
+}
+img{
+  width:100%;
+  border-radius:12px;
+}
+.option{
+  display:block;
+  margin:12px 0;
+  padding:16px;
+  font-size:18px;
+  border-radius:12px;
+  background:#1e293b;
+  cursor:pointer;
+}
+.option:active{
+  transform:scale(0.97);
+  background:#3949ab;
+}
+.timer{
+  height:6px;
+  background:red;
+  margin-top:12px;
+  transition:width 1s linear;
+}
+/* HURRY MODE */
+.timer.hurry{
+  background:#ff0000;
+  animation:pulse 0.6s infinite;
+}
+@keyframes pulse{
+  0%{ transform:scaleY(1); }
+  50%{ transform:scaleY(1.6); }
+  100%{ transform:scaleY(1); }
+}
+button{
+  width:100%;
+  padding:15px;
+  font-size:18px;
+  border:none;
+  border-radius:12px;
+  background:#22c55e;
+  color:white;
+  margin-top:20px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<div id="app">
+</div>
+</div>
+<script>
+// -------- SERVICE WORKER --------
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js')
+    .then(() => console.log("Service Worker Registered"));
+}
+// -------- INSTALL PROMPT --------
+let deferredPrompt;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  console.log("Install available");
+
+  let btn = document.getElementById("installBtn");
+  if(btn){
+    btn.style.display = "block";
+    btn.onclick = async () => {
+      deferredPrompt.prompt();
+      const choiceResult = await deferredPrompt.userChoice;
+      if (choiceResult.outcome === 'accepted') {
+        console.log('User accepted install');
+      } else {
+        console.log('User dismissed install');
+      }
+      deferredPrompt = null;
+    };
+  }
+});
+// -------- DATA --------
+const slides = [
+{ img:"Slide1.png", answer:0, time:10 },
+{ img:"Slide2.png", answer:1, time:10 },
+{ img:"Slide3.png", answer:1, time:10 },
+{ img:"Slide4.png", answer:1, time:10 },
+{ img:"Slide5.png", answer:1, time:10 }
+];
+const explanations = [
+{ img:"Slide1.1.png", time:8 },
+{ img:"Slide2.1.png", time:8 },
+{ img:"Slide3.1.png", time:8 },
+{ img:"Slide4.1.png", time:10 },
+{ img:"Slide5.1.png", time:8 }
+
+
+];
+
+// -------- VARIABLES --------
+let timePerQuestion = [];
+let startTime = 0;
+let responseTimes = [];
+let i = 0;
+let score = 0;
+let userAnswers = new Array(slides.length).fill(null);
+let timer;
+let viewMode = "wrong";
+let totalAttempted = 0;
+let correctCount = 0;
+
+// -------- INTRO --------
+function showIntro(){
+document.getElementById("app").innerHTML = `
+<h1>NEET QTQS ⚡</h1>
+<p>Test your speed & accuracy</p>
+
+<button onclick="startQuiz()">Start Test</button>
+
+<br><br>
+
+<button id="installBtn" style="display:none; background:#f59e0b;">
+📲 Install App
+</button>
+`;
+
+// Attach install button AFTER rendering
+let btn = document.getElementById("installBtn");
+
+if(deferredPrompt && btn){
+  btn.style.display = "block";
+
+  btn.onclick = async () => {
+    deferredPrompt.prompt();
+    const choiceResult = await deferredPrompt.userChoice;
+    deferredPrompt = null;
+  };
+}
+}
+function startQuiz(){
+i = 0;
+score = 0;
+totalAttempted = 0;   // ✅ ADD THIS
+correctCount = 0;     // ✅ ADD THIS
+userAnswers.fill(null);
+showQuestion();
+}
+
+// -------- QUESTIONS --------
+function showQuestion(){
+
+if(i >= slides.length){
+showScore();
+return;
+}
+startTime = Date.now(); // ✅ ADD HERE
+
+
+let s = slides[i];
+document.getElementById("app").innerHTML = `
+<div><b>Q${i+1}/${slides.length}</b></div>
+
+<img src="${s.img}">
+
+<p style="color:#f87171; font-weight:bold;">
+⏱  You have only ${s.time} seconds
+</p>
+
+<div class="option" onclick="select(0)">A</div>
+<div class="option" onclick="select(1)">B</div>
+<div class="option" onclick="select(2)">C</div>
+<div class="option" onclick="select(3)">D</div>
+
+<button onclick="manualNext()">NEXT ▶</button>
+
+<!-- ✅ ADD HERE -->
+<button onclick="pauseTimer()">⏸ Pause</button>
+
+<div class="timer" id="bar"></div>
+`;
+startTimer(s.time, nextQuestion);
+}
+function pauseTimer(){
+  clearInterval(timer);
+}
+// -------- SELECT --------
+function select(ans){
+if(userAnswers[i] !== null) return;
+
+let timeTaken = (Date.now() - startTime) / 1000;
+responseTimes[i] = timeTaken;
+
+userAnswers[i] = ans;
+
+let ops = document.getElementsByClassName("option");
+for(let o of ops) o.style.background="";
+ops[ans].style.background="#00c853";
+
+clearInterval(timer);
+
+// 🔥 AUTO MOVE AFTER 1 SECOND
+setTimeout(nextQuestion, 1000);
+}
+// -------- TIMER --------
+function startTimer(duration, callback){
+
+let t = duration;
+let bar = document.getElementById("bar");
+if(!bar) return;
+bar.style.width = "100%";
+
+clearInterval(timer);
+setTimeout(nextQuestion, 150000);
+
+timer = setInterval(()=>{
+
+t--;
+
+// width shrink
+if(bar){
+bar.style.width = (t/duration)*100 + "%";
+// 🔴 HURRY MODE (last 5 seconds)
+if(t <= 5){
+bar.classList.add("hurry");
+}
+}
+
+// ⛔ stop
+if(t <= 0){
+clearInterval(timer);
+callback();
+}
+
+},1000);
+}
+
+// -------- NEXT --------
+function nextQuestion(){
+let timeTaken = (Date.now() - startTime)/1000;
+
+timePerQuestion.push(timeTaken);
+
+if(userAnswers[i] === null){
+  responseTimes[i] = slides[i].time;
+}
+
+if(userAnswers[i] !== null){
+  totalAttempted++;
+
+  if(userAnswers[i] === slides[i].answer){
+    score += 4;
+    correctCount++;
+  } else {
+    score -= 1;
+  }
+}
+
+i++;
+showQuestion();
+}
+
+
+// -------- SCORE --------
+function showScore(){
+
+let msgColor = "";
+
+let totalTime = responseTimes.reduce((a,b)=>a+(b||0),0);
+let avgTime = (totalTime / slides.length).toFixed(2);
+
+let accuracy = totalAttempted === 0 ? 0 : ((correctCount / totalAttempted) * 100).toFixed(1);
+
+if(accuracy < 40) msgColor = "#ef4444";
+else if(accuracy < 70) msgColor = "#facc15";
+else msgColor = "#22c55e";
+
+// SPEED
+let speedLevel = avgTime <= 3 ? "⚡ Lightning Fast"
+               : avgTime <= 5 ? "🚀 Good Speed"
+               : "🐢 Too Slow";
+
+// PERFORMANCE
+let performance = accuracy >= 80 ? "🔥 Top Performer"
+                 : accuracy >= 50 ? "👏 Average"
+                 : "💪 Improve";
+
+// MESSAGE
+let motivation = accuracy < 40 ? "💪 Don't worry & never give up"
+               : accuracy < 70 ? "👍 Keep practicing"
+               : accuracy < 95 ? "🧠 Work smarter"
+               : "🏆 Excellent!";
+
+// UI
+document.getElementById("app").innerHTML = `
+<h1>Your Score: ${score}</h1>
+
+<h2>Accuracy: ${accuracy}%</h2>
+<h2>Avg Time: ${avgTime}s</h2>
+
+<h3>${speedLevel}</h3>
+<h3>${performance}</h3>
+
+<p>${motivation}</p>
+
+<div class="timer" id="bar"></div>
+
+<button onclick="showExplanations()">View Answers Now</button>
+<p>Auto-continue in 10 seconds...</p>
+`;
+
+startTimer(10, showExplanations);
+}
+// -------- DRAW GRAPH (OUTSIDE HTML) --------
+
+// timer continue
+
+// -------- EXPLANATIONS --------
+let list = [];
+let expIndex = 0;
+
+function showExplanations(){
+
+list = [];
+
+if(viewMode === "all"){
+for(let j=0; j<slides.length; j++) list.push(j);
+}
+else{
+for(let j=0; j<slides.length; j++){
+if(userAnswers[j] !== slides[j].answer){
+list.push(j);
+}
+}
+}
+
+if(list.length === 0){
+document.getElementById("app").innerHTML = `
+<h2>🎉 All answers correct!</h2>
+<button onclick="location.reload()">Restart</button>
+`;
+return;
+}
+
+expIndex = 0;
+showNextExplanation();
+}
+
+function showNextExplanation(){
+
+if(expIndex >= list.length){
+  document.getElementById("app").innerHTML = `
+  <h2>End of Review ✅</h2>
+  <button onclick="location.reload()">Restart</button>
+  `;
+  return;
+}
+
+let qIndex = list[expIndex];
+let exp = explanations[qIndex] || {img:"Slide8.png", time:5};
+if(!exp){
+  document.getElementById("app").innerHTML = `
+  <h3>No explanation available</h3>
+  <button onclick="manualNextExplanation()">NEXT ▶</button>
+  `;
+  return;
+}
+
+document.getElementById("app").innerHTML = `
+<img src="${exp.img}">
+<button onclick="manualNextExplanation()">NEXT ▶</button>
+<div class="timer" id="bar"></div>
+`;
+
+startTimer(exp.time, ()=>{
+  expIndex++;
+  showNextExplanation();
+});
+}
+// -------- INIT --------
+showIntro();
+function manualNextExplanation(){
+  clearInterval(timer);
+  expIndex++;
+  showNextExplanation();
+}
+function manualNext(){
+  clearInterval(timer);
+  nextQuestion();
+}
+</script>
+
+</body>
+</html>
+
+
